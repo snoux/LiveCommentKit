@@ -19,22 +19,12 @@ let package = Package(
             url: "https://github.com/apple/swift-collections.git",
             exact: "1.1.6"
         ),
-        .package(
-            url: "https://github.com/SDWebImage/SDWebImageSwiftUI.git",
-            from: "3.1.4"
-        ),
-        .package(
-            url: "https://github.com/SDWebImage/SDWebImage.git",
-            from: "5.21.1"
-        ),
     ],
     targets: [
         .target(
             name: "LiveCommentKit",
             dependencies: [
                 .product(name: "DequeModule", package: "swift-collections"),
-                .product(name: "SDWebImageSwiftUI", package: "SDWebImageSwiftUI"),
-                .product(name: "SDWebImage", package: "SDWebImage"),
             ]
         ),
         .testTarget(

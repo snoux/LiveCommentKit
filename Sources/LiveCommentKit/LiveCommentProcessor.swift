@@ -176,7 +176,7 @@ actor LiveCommentProcessor {
             switch trimmingPolicy {
             case .oldest:
                 // 双端队列从队首淘汰最旧消息，均摊 O(1)。
-                target.popFirst()
+                _ = target.popFirst()
             case .lowestPriorityThenOldest:
                 // 先定位最低优先级中最旧的元素，再从较近的一端移动。
                 target.remove(at: lowestPriorityOldestIndex(in: target))

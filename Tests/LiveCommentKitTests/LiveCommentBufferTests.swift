@@ -58,7 +58,6 @@ final class LiveCommentBufferTests: XCTestCase {
         await buffer.enqueue(makeItem(id: "2"))
 
         XCTAssertEqual(buffer.pendingCount, 2)
-        XCTAssertEqual(buffer.pendingCountBadgeText, "2条新消息")
         XCTAssertFalse(buffer.isFollowingLatest)
         XCTAssertTrue(buffer.items.isEmpty)
 
@@ -69,7 +68,7 @@ final class LiveCommentBufferTests: XCTestCase {
         XCTAssertEqual(buffer.items.map(\.id), ["1", "2"])
     }
 
-    func testPendingBadgeStopsAtNinetyNinePlus() async {
+    func testPendingCountPreservesFullValueBeyondNinetyNine() async {
         let buffer = LiveCommentBuffer(capacity: 120)
         await buffer.pauseFollowingLatest()
 
@@ -78,7 +77,6 @@ final class LiveCommentBufferTests: XCTestCase {
         )
 
         XCTAssertEqual(buffer.pendingCount, 100)
-        XCTAssertEqual(buffer.pendingCountBadgeText, "99+条新消息")
         XCTAssertTrue(buffer.items.isEmpty)
     }
 

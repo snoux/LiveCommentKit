@@ -1,27 +1,20 @@
 # LiveCommentKit
 
-`LiveCommentKit` 是一个适合直播画面左下角纵向滚动评论的 SwiftUI 组件。它不是横向飞行弹幕：消息从下方进入、向上滚动，用户上滑查看历史时会暂停自动跟随，并显示待查看消息数量。
+SwiftUI 纵向直播评论容器，最低 iOS 17 / macOS 14。SDK 管理消息缓冲与滚动，业务工程通过 `@ViewBuilder` 提供评论 Cell 和未读提示。
 
-## 特性
+## 职责与依赖
 
-- 通过 Swift Package Manager 接入，最低支持 iOS 17。
-- 固定容量的 `LiveCommentBuffer`，避免消息随直播时长无限增长。
-- 支持普通、当前用户、新观众加入、主播、管理员、系统、礼物七种消息类别。
-- 支持普通、较高、关键、即时四级优先级，并由消息类别自动提供合理默认值。
-- 使用 `SDWebImageSwiftUI` 加载头像，并按显示尺寸进行缩略图解码。
-- 提供统一的头像内存、数量、磁盘大小和保存时间上限。
-- 用户上滑后，新消息暂存在独立待加载区，不会改变正在翻看的历史列表。
-- 新消息按钮显示 `1…99` 或 `99+`，点击后才加载待处理消息并回到最新位置。
-- 列表无额外背景，顶部使用透明度遮罩直接渐隐，旧弹幕离开时不会被生硬切断。
-- 公开类型、函数及参数均提供 `///` 文档注释，可在 Xcode Quick Help 中查看。
+- SDK：去重、容量裁剪、优先级、历史浏览期间的待加载区、实际未读数量、自动跟随、当前用户消息即时可见、恢复跟随及滚动定位。
+- 容器：`ScrollView + LazyVStack`、稳定行 ID、行间距、顶部渐隐、贴底布局和滚动动画。
+- 业务工程：Cell 的布局、字体、背景、头像加载、点击事件，以及未读提示的按钮、文案和样式。
+- SDK 只依赖 Apple Swift Collections 1.1.6，不依赖 SDWebImage 或 SDWebImageSwiftUI。
+- 所有公开类型、初始化器、函数与参数使用 `///` Quick Help 注释。
 
 ## 安装
 
-在 Xcode 中选择 **File → Add Package Dependencies**，填入仓库地址并将 `LiveCommentKit` 产品加入 App Target。
+通过 Swift Package Manager 将 `LiveCommentKit` 产品加入 App Target；本地可添加本仓库作为 Local Package。图片库由使用方按需引用。
 
-本地开发时，也可以把本仓库作为 Local Package 加入 Xcode 工程。
-
-## 最小用法
+## 自定义 Cell 与未读提示
 
 ```swift
 import LiveCommentKit
@@ -31,37 +24,48 @@ struct LiveRoomView: View {
     @StateObject private var comments = LiveCommentBuffer(capacity: 300)
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            LiveVideoView()
-
-            LiveCommentView(buffer: comments)
-                .frame(width: 320, height: 260)
-                .padding()
+        LiveCommentView(
+            buffer: comments,
+            layout: LiveCommentLayout(rowSpacing: 6, topFadeHeight: 24)
+        ) { item in
+            Text(item.nickname + "：" + item.content)
+                .padding(8)
+                .background(.black.opacity(0.4), in: Capsule())
+                .foregroundStyle(.white)
+                .onTapGesture { print(item.userID as Any) }
+        } pending: { count, showLatest in
+            Button(action: showLatest) {
+                Text(count > 99 ? "99+条新消息" : "\(count)条新消息")
+                    .font(.caption)
+                    .padding(8)
+                    .background(.white, in: Capsule())
+                    .foregroundStyle(.orange)
+            }
         }
-        .onAppear {
-            LiveCommentImageCacheConfiguration.liveStreaming.apply()
-        }
-    }
-
-    func receiveComment(_ payload: CommentPayload) {
-        Task {
-            await comments.enqueue(
-                LiveCommentItem(
-                    id: payload.id,
-                    userID: payload.userID,
-                    nickname: payload.nickname,
-                    content: payload.content,
-                    avatarURL: URL(string: payload.avatarURL)
-                )
-            )
-        }
+        .frame(width: 320, height: 260)
     }
 }
 ```
 
-`enqueue(_:)` 是异步接口，可从 WebSocket、网络回调或其他并发上下文调用。
-批量恢复历史数据时优先使用 `await comments.enqueue(contentsOf: messages)`，
-整批消息只会向 UI 提交一次最终快照。
+`content` 可返回任意业务 View，也可根据 `item.kind` 使用不同布局。SDK 不设置行的字体、背景、头像或点击手势，只设置消息的稳定 ID。
+
+`pending` 仅在实际未读数量大于 0 时构造。数量不做 99 截断；第二个参数 `showLatest` 是同步调用入口，SDK 内部异步合并消息并滚动，业务按钮无需重复处理缓存。业务可使用 Button、点击手势或其他控件触发它。
+
+仅需评论行时，可以省略未读提示闭包：
+
+```swift
+LiveCommentView(buffer: comments) { item in
+    Text(item.content)
+}
+```
+
+省略后默认使用 `EmptyView`，暂停跟随与未读数据仍生效；业务需要时可调用 `await comments.resumeFollowingLatest()` 恢复跟随。
+
+## 容器布局
+
+`LiveCommentLayout` 只提供 `rowSpacing`、`topFadeHeight`、`scrollAnimationDuration`、`rowAlignment` 和 `pendingAlignment`。默认行左对齐、提示位于左下角，顶部渐隐高度 44，滚动动画 0.22 秒。渐隐高度或动画时长为 0 时关闭对应效果。
+
+列表默认底部锚定，消息不足一屏时也贴底；每次收到新消息才执行一次滚动，没有按帧轮询。
 
 ## 异步处理模型
 
@@ -139,7 +143,7 @@ sequenceDiagram
 
 ## 双端队列实现
 
-`LiveCommentDeque` 是组件内部的环形双端队列，不依赖额外第三方库。
+底层使用 Apple Swift Collections 的 `DequeModule.Deque`，保留环形缓冲区与值语义，不再维护自定义双端队列。
 `LiveCommentProcessor` actor 内部同时维护两个 Deque：
 
 - `items`：已进入展示区的消息。
@@ -212,58 +216,29 @@ Task {
 `items` 展示队列，而是进入容量受限的待加载区：
 
 - `pendingCount` 记录暂停期间实际收到的新消息数量。
-- `pendingCountBadgeText` 在超过 99 条时返回 `99+条新消息`。
+- SDK 仅提供实际 `pendingCount`；是否显示 `99+`、显示什么文案，由外部提示视图决定。
 - 用户点击按钮后，`resumeFollowingLatest()` 才会把仍被保留的待加载消息合并到展示队列。
 - 合并顺序为普通 → 较高 → 关键 → 即时，同级消息保持接收顺序，因此高优先级消息会落在滚动后的最新可见区域。
 - 待加载区同样受 `capacity` 和优先级淘汰策略约束，不会因长时间翻看历史而无限增长。
 
-## 缓存建议
 
-请在 App 启动时调用一次：
+## 头像与缓存由业务管理
 
-```swift
-LiveCommentImageCacheConfiguration(
-    memoryCostLimit: 50 * 1024 * 1024,
-    memoryCountLimit: 300,
-    diskSizeLimit: 200 * 1024 * 1024,
-    diskAgeLimit: 7 * 24 * 60 * 60
-).apply()
-```
+SDK 中的 `avatarURL` 仅是 Foundation 数据字段，不触发加载。业务 Cell 可以使用本地 Image、系统 AsyncImage 或自行引入的图片库。
 
-组件不会在某条弹幕离开屏幕时删除头像缓存。这样同一用户再次发言时可以复用图片；缓存达到上限后，由 SDWebImage 统一淘汰。
+独立 `LiveCommentKitDemo` 保留网络头像演示，其 `DemoCommentCell`、`DemoCommentAvatar` 和 `DemoCommentImageCacheConfiguration` 均属于 Demo 工程；Demo 直接依赖 SDWebImageSwiftUI 与 SDWebImage，并在启动时设置缓存上限。这些产品不属于 SDK 依赖图。
 
-## 自定义样式
+## 迁移说明
 
-```swift
-let style = LiveCommentStyle(
-    avatarSize: 32,
-    topFadeHeight: 48,
-    scrollAnimationDuration: 0.28,
-    lineLimit: 2,
-    commentBackgroundColor: .black.opacity(0.52),
-    hostBackgroundColor: .orange.opacity(0.82)
-)
+这次调整了视图构造 API，消息入队、缓冲区和优先级 API 保持原样：
 
-LiveCommentView(
-    buffer: comments,
-    style: style,
-    showsAvatar: true,
-    onCommentTap: { comment in
-        print(comment.userID as Any)
-    }
-)
-```
+| 旧 API | 新用法 |
+| --- | --- |
+| `LiveCommentView(buffer:style:)` | `LiveCommentView(buffer:layout:content:pending:)` |
+| `LiveCommentStyle` | 容器参数放入 `LiveCommentLayout`，行样式放入业务 Cell |
+| `showsAvatar`、`onCommentTap` | 在业务 Cell 内处理头像和点击 |
+| `showsJumpToLatestButton` | 传入 `pending`，或省略闭包隐藏提示 |
+| `pendingCountBadgeText` | 读取实际 `pendingCount` 后由业务格式化 |
+| SDK 默认 Cell、头像与缓存配置 | 移入业务工程；Demo 提供可参考实现 |
 
-列表在新消息到达时使用 `ScrollViewReader.scrollTo` 配合
-`Animation.easeOut(duration:)` 进行事件驱动滚动。`scrollAnimationDuration` 越小滚动越快，
-设为 `0` 时直接跳到最新位置。组件不使用 `TimelineView`，避免在没有新弹幕时仍持续按帧刷新。
-
-## 内存边界
-
-消息模型与头像缓存是两套独立边界：
-
-1. `LiveCommentBuffer.capacity` 同时控制展示队列和待加载区各自的消息上限。
-2. `LiveCommentImageCacheConfiguration` 控制 SDWebImage 的内存与磁盘缓存。
-3. 头像会按照视图尺寸与屏幕缩放倍数进行缩略图解码，避免为一个 30pt 头像长期解码超大原图。
-
-不要在每个 `LiveCommentRow.onDisappear` 中删除头像，否则同一用户再次出现时会重复下载和解码。
+SDK 及独立 Demo 均保留 iOS 17 最低版本。

@@ -42,13 +42,6 @@ public final class LiveCommentBuffer: ObservableObject {
         items.last?.id
     }
 
-    /// 适合直接展示在待加载按钮上的文案。
-    ///
-    /// 待加载数量最大显示为 `99+`，但 `pendingCount` 仍保留实际收到的消息数量。
-    public var pendingCountBadgeText: String {
-        pendingCount > 99 ? "99+条新消息" : "\(pendingCount)条新消息"
-    }
-
     /// 创建一个异步处理的有界弹幕缓冲区。
     /// - Parameters:
     ///   - capacity: 展示队列和待加载区各自最多保留的消息数量。小于 1 的值会被修正为 1。
